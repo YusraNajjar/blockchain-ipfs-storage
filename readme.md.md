@@ -1,5 +1,5 @@
 # IPFS + Ethereum Secure Storage System  
-**Authors**: [Yusra Al Najjar], [Abdulla Al-Ali]  
+**Authors**: [Yusra Al Najjar]  
 **Paper**: [Blockchain-Integrated IPFS Storage for Secure Data Management](https://doi.org/xx.xxxx) (if published)  
 **License**: [MIT](LICENSE)  
 
