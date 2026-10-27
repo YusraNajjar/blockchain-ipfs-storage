@@ -1,0 +1,35 @@
+{
+  "_note": "Template only. scripts/measure.js writes the real results/results.json. This file contains no measurements.",
+  "meta": {
+    "chainId": "number",
+    "node": "string",
+    "ethers": "string",
+    "contract": "address",
+    "runs": "number",
+    "confirmations": "number",
+    "gateway": "string",
+    "startedAt": "ISO timestamp"
+  },
+  "rows": [],
+  "failures": [],
+  "_row_fields": {
+    "run": "round number",
+    "file": "sample file name",
+    "bytes": "plaintext size in bytes",
+    "cid": "CID returned by the pinning service",
+    "txHash": "registration transaction hash",
+    "block": "block number of the receipt",
+    "gasUsed": "gas used (string)",
+    "gasPriceWei": "effective gas price in wei (string)",
+    "intact": "downloaded ciphertext hash equals uploaded ciphertext hash",
+    "decrypted": "decrypted plaintext hash equals original hash",
+    "encrypt": "seconds",
+    "upload": "seconds",
+    "broadcast": "seconds",
+    "confirm": "seconds",
+    "retrieve": "seconds (full body download)",
+    "verify": "seconds (outside total)",
+    "total": "encrypt + upload + broadcast + confirm + retrieve",
+    "wall": "start to end including verify"
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "node": "v20.19.0",
+  "hardhat": "2.29.1",
+  "contract": "0x65608Db8CEdC484143047Ad545b77F491665af81",
+  "batches_merged": [
+    2,
+    3,
+    4
+  ],
+  "pilot_excluded": "batch1 (4 s receipt polling, no random pre-broadcast pause)",
+  "pollMs": 250,
+  "jitterMs": 12000,
+  "sepolia_fork_note": "Measured after the Glamsterdam activation on Sepolia (2026-10-06)"
+}

@@ -1,0 +1,23 @@
+{
+  "name": "blockchain-ipfs-storage",
+  "version": "1.0.0",
+  "description": "Hybrid blockchain-IPFS storage: contract, tests and reproducible benchmark",
+  "license": "MIT",
+  "private": true,
+  "engines": { "node": ">=20.6" },
+  "scripts": {
+    "compile": "hardhat compile",
+    "test": "hardhat test",
+    "test:crypto": "node --test tests-offchain/crypto.test.js",
+    "deploy:sepolia": "hardhat run scripts/deploy.js --network sepolia",
+    "samples": "node scripts/make_samples.js",
+    "measure": "node --env-file=.env scripts/measure.js",
+    "stats": "python analysis/stats.py results/results.json results/figs"
+  },
+  "devDependencies": {
+    "@nomicfoundation/hardhat-toolbox": "^2.0.2",
+    "dotenv": "^16.4.5",
+    "ethers": "^5.7.2",
+    "hardhat": "^2.22.0"
+  }
+}

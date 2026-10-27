@@ -1,0 +1,13 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite the paper."
+title: "Decentralized Data Management Using Blockchain-Integrated IPFS: Security, Verifiability, and Performance Evaluation"
+authors:
+  - family-names: "Al Najjar"
+    given-names: "Yusra"
+  - family-names: "Oraiqat"
+    given-names: "Anas"
+  - family-names: "Abed"
+    given-names: "Hashem"
+license: MIT
+repository-code: "https://github.com/usra7/blockchain-ipfs-storage"
+# doi: "ADD the archived release DOI after creating the release"

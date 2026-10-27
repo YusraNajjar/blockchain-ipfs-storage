@@ -1,0 +1,17 @@
+# Secrets
+.env
+*.pem
+
+# Dependencies and build output
+node_modules/
+artifacts/
+cache/
+coverage/
+typechain-types/
+
+# Large generated sample files
+data/*.bin
+
+# Python
+__pycache__/
+*.pyc

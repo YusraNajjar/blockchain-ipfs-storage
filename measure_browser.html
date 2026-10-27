@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>IPFS + Sepolia benchmark (MetaMask)</title>
+<script src="https://cdn.jsdelivr.net/npm/ethers@5.7.2/dist/ethers.umd.min.js"></script>
+<style>
+  body { font-family: Arial, sans-serif; max-width: 760px; margin: 24px auto; padding: 0 16px; background: #f8f9fa; }
+  label { display: block; margin: 12px 0 4px; font-weight: 600; }
+  input { width: 100%; box-sizing: border-box; padding: 6px; font-size: 14px; }
+  button { margin: 14px 8px 0 0; padding: 8px 16px; font-size: 14px; cursor: pointer; }
+  #log { background: #fff; border: 1px solid #ccc; padding: 10px; height: 280px; overflow-y: auto; font-size: 13px; white-space: pre-wrap; }
+  .note { background: #fff3cd; border: 1px solid #ffe08a; padding: 8px 12px; font-size: 13px; }
+</style>
+</head>
+<body>
+<h1>IPFS + Sepolia benchmark (MetaMask)</h1>
+<p class="note">MetaMask asks you to confirm every run. Keep this tab open and in the foreground. The time you take to click Confirm is recorded as wallet approval and is excluded from the total. Secrets are typed here and never stored.</p>
+
+<label for="jwt">Pinata JWT (upload-only key)</label>
+<input type="password" id="jwt" autocomplete="off" />
+<label for="addr">Contract address (Sepolia)</label>
+<input type="text" id="addr" placeholder="0x..." />
+<label for="runs">Runs per file</label>
+<input type="number" id="runs" value="1" min="1" />
+<label for="conf">Confirmations to wait for</label>
+<input type="number" id="conf" value="1" min="1" />
+<label for="files">Your sample files (select several)</label>
+<input type="file" id="files" multiple />
+<label for="extra">Extra random-content sizes in MiB (comma separated, may be empty)</label>
+<input type="text" id="extra" value="0.5,5,25" />
+
+<button id="start">Start</button>
+<button id="dl" disabled>Download results.json</button>
+<pre id="log"></pre>
+
+<script>
+const GATEWAY = 'https://gateway.pinata.cloud/ipfs';
+const ABI = ['function uploadHash(string ipfsHash)'];
+const SEPOLIA = 11155111;
+const $ = (id) => document.getElementById(id);
+const rows = [];
+const failures = [];
+let meta = {};
+
+function log(msg) {
+  const box = $('log');
+  box.textContent += msg + '\n';
+  box.scrollTop = box.scrollHeight;
+}
+const sec = (t0) => (performance.now() - t0) / 1000;
+
+// --- helpers ---
+async function sha256Hex(buf) {
+  const d = await crypto.subtle.digest('SHA-256', buf);
+  return Array.from(new Uint8Array(d)).map((b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+// Fresh key and nonce per call; the nonce is prepended to the ciphertext.
+async function encrypt(plain) {
+  const key = await crypto.subtle.generateKey({ name: 'AES-GCM', length: 256 }, true, ['encrypt', 'decrypt']);
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const ct = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, plain));
+  const blob = new Uint8Array(12 + ct.length);
+  blob.set(iv, 0);
+  blob.set(ct, 12);
+  return { key, blob };
+}
+
+async function decrypt(key, blob) {
+  const iv = blob.slice(0, 12);
+  return new Uint8Array(await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, key, blob.slice(12)));
+}
+
+// getRandomValues accepts at most 65536 bytes per call
+function randomBytes(n) {
+  const out = new Uint8Array(n);
+  for (let i = 0; i < n; i += 65536) crypto.getRandomValues(out.subarray(i, Math.min(i + 65536, n)));
+  return out;
+}
+
+function shuffle(a) {
+  const b = [...a];
+  for (let i = b.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [b[i], b[j]] = [b[j], b[i]];
+  }
+  return b;
+}
+// --- end helpers ---
+
+async function pin(blob, jwt) {
+  const form = new FormData();
+  form.append('file', new Blob([blob]), 'payload.enc'); // generic name: no original filename is sent
+  const res = await fetch('https://api.pinata.cloud/pinning/pinFileToIPFS', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${jwt}` },
+    body: form,
+  });
+  if (!res.ok) throw new Error('Pinata HTTP ' + res.status);
+  return (await res.json()).IpfsHash;
+}
+
+// Full body download; a few retries cover a gateway that has not seen the pin yet
+async function download(cid) {
+  let attempts = 0;
+  for (;;) {
+    attempts++;
+    const res = await fetch(`${GATEWAY}/${cid}`);
+    if (res.ok) return { data: new Uint8Array(await res.arrayBuffer()), attempts };
+    if (attempts >= 5) throw new Error('Gateway HTTP ' + res.status);
+    await new Promise((r) => setTimeout(r, 1000));
+  }
+}
+
+async function runOnce(item, contract, jwt, conf) {
+  const t = {};
+  const wall0 = performance.now();
+
+  let s = performance.now();
+  const { key, blob } = await encrypt(item.bytes);
+  t.encrypt = sec(s);
+
+  s = performance.now();
+  const cid = await pin(blob, jwt);
+  t.upload = sec(s);
+
+  s = performance.now(); // includes the time you take to click Confirm in MetaMask
+  const tx = await contract.uploadHash(cid);
+  const walletApproval = sec(s);
+
+  s = performance.now();
+  const rc = await tx.wait(conf);
+  t.confirm = sec(s);
+
+  s = performance.now();
+  const { data, attempts } = await download(cid);
+  t.retrieve = sec(s);
+
+  s = performance.now();
+  const intact = (await sha256Hex(data)) === (await sha256Hex(blob));
+  const back = await decrypt(key, data);
+  const decrypted = (await sha256Hex(back)) === item.hash;
+  t.verify = sec(s);
+
+  t.broadcast = 0; // not separable from wallet approval in manual mode
+  t.total = t.encrypt + t.upload + t.confirm + t.retrieve;
+  t.wall = sec(wall0);
+  return {
+    cid, txHash: tx.hash, block: rc.blockNumber,
+    gasUsed: rc.gasUsed.toString(), gasPriceWei: rc.effectiveGasPrice.toString(),
+    intact, decrypted, retrieveAttempts: attempts, walletApproval, ...t,
+  };
+}
+
+function downloadResults() {
+  const text = JSON.stringify({ meta, rows, failures }, null, 2);
+  const url = URL.createObjectURL(new Blob([text], { type: 'application/json' }));
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'results.json';
+  a.click();
+  URL.revokeObjectURL(url);
+}
+$('dl').onclick = downloadResults;
+
+$('start').onclick = async () => {
+  $('start').disabled = true;
+  try {
+    const jwt = $('jwt').value.trim();
+    const addr = $('addr').value.trim();
+    const runs = Number($('runs').value);
+    const conf = Number($('conf').value);
+    if (!jwt) throw new Error('Enter the Pinata JWT');
+    if (!ethers.utils.isAddress(addr)) throw new Error('Enter a valid contract address');
+    if (!window.ethereum) throw new Error('MetaMask not found: open this page from http://localhost');
+
+    await window.ethereum.request({ method: 'eth_requestAccounts' });
+    const provider = new ethers.providers.Web3Provider(window.ethereum);
+    const net = await provider.getNetwork();
+    if (net.chainId !== SEPOLIA) throw new Error('Switch MetaMask to the Sepolia network');
+    const signer = provider.getSigner();
+    const contract = new ethers.Contract(addr, ABI, signer);
+
+    // Load every file once so reading from disk is not part of any timer
+    const items = [];
+    for (const f of $('files').files) {
+      const bytes = new Uint8Array(await f.arrayBuffer());
+      items.push({ name: f.name, bytes, hash: await sha256Hex(bytes) });
+    }
+    for (const part of $('extra').value.split(',').map((x) => x.trim()).filter(Boolean)) {
+      const mib = Number(part);
+      if (!(mib > 0)) throw new Error('Bad extra size: ' + part);
+      const bytes = randomBytes(Math.round(mib * 1048576));
+      items.push({ name: `random_${part}MiB`, bytes, hash: await sha256Hex(bytes) });
+    }
+    if (items.length === 0) throw new Error('Select files or enter extra sizes');
+
+    meta = {
+      mode: 'metamask-manual', chainId: net.chainId, contract: addr,
+      account: await signer.getAddress(), runs, confirmations: conf, gateway: GATEWAY,
+      ethers: ethers.version, userAgent: navigator.userAgent, startedAt: new Date().toISOString(),
+    };
+    log(`Ready: ${items.length} files x ${runs} runs = ${items.length * runs} transactions to confirm`);
+
+    for (let r = 1; r <= runs; r++) {
+      for (const item of shuffle(items)) { // interleave sizes within each round
+        try {
+          const row = await runOnce(item, contract, jwt, conf);
+          rows.push({ run: r, file: item.name, bytes: item.bytes.length, ...row });
+          log(`run ${r} ${item.name}: total ${row.total.toFixed(2)}s, gas ${row.gasUsed}, intact ${row.intact}, decrypted ${row.decrypted}`);
+        } catch (e) {
+          failures.push({ run: r, file: item.name, error: String(e.message || e) });
+          log(`run ${r} ${item.name} FAILED: ${e.message || e}`);
+        }
+        $('dl').disabled = rows.length === 0;
+      }
+    }
+    log(`Done: ${rows.length} ok, ${failures.length} failed. Click "Download results.json".`);
+  } catch (e) {
+    log('Error: ' + (e.message || e));
+  } finally {
+    $('start').disabled = false;
+  }
+};
+</script>
+</body>
+</html>
